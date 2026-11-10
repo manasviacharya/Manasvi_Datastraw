@@ -1,0 +1,11 @@
+-- AlterEnum
+--
+-- EMPLOYEE_OVERCOMMITTED catches the mirror image of STAFFING_SHORTFALL: not
+-- "this client has too few people" but "this person has too many clients".
+-- Each client can look adequately staffed on its own while the combination is
+-- impossible for one person to work.
+--
+-- IF NOT EXISTS so the statement is safe to re-run. ALTER TYPE ... ADD VALUE
+-- is allowed inside a transaction from PostgreSQL 12 onwards, which Prisma
+-- requires since it wraps each migration in one.
+ALTER TYPE "ViolationKind" ADD VALUE IF NOT EXISTS 'EMPLOYEE_OVERCOMMITTED';

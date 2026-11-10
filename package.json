@@ -1,0 +1,41 @@
+{
+  "name": "roster-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart Roster Management System \u2014 monthly rostering across brands, processes and pods",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start -p ${PORT:-3000}",
+    "lint": "next lint",
+    "test": "tsx --test src/lib/scheduler/*.test.ts",
+    "test:ai": "tsx --env-file-if-exists=.env scripts/eval-ai.ts",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "dry-run": "tsx --env-file-if-exists=.env scripts/dry-run.ts",
+    "ai:models": "tsx --env-file-if-exists=.env scripts/ai-models.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "next": "^15.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "prisma": "^6.1.0",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

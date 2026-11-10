@@ -1,0 +1,64 @@
+# Render blueprint.
+#
+# Creates both resources from a clone: the web service and a NEW empty
+# database. Committing it is also documentation -- the build command below is
+# the whole deploy process.
+#
+#   Render dashboard -> New -> Blueprint -> point at this repo
+#   then, once live, seed it from the service shell:  npm run db:seed
+#
+# If you already have a database you want to keep, do NOT use the blueprint.
+# Create the web service by hand instead and point DATABASE_URL at the
+# existing one, or this will provision a second, empty database alongside it.
+#
+# Region must match the database's region. Every query crosses the network,
+# so a web service in Singapore talking to Postgres in Virginia pays several
+# hundred milliseconds on each one.
+
+services:
+  - type: web
+    name: roster-app
+    runtime: node
+    plan: free
+    region: virginia
+    branch: main
+
+    # prisma migrate deploy runs as part of the BUILD, so the schema travels
+    # with the deploy. No manual migration step to forget, and no window where
+    # the running code expects a column the database does not have.
+    # `npm run build` already runs `prisma generate`, so it is not repeated
+    # here. `migrate deploy` runs as part of the BUILD so the schema travels
+    # with the deploy: no manual step to forget, and no window where the
+    # running code expects a column the database does not have.
+    buildCommand: npm ci && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+
+    # Checks the database, not just process liveness, so Render stops routing
+    # traffic to an instance whose database is unreachable.
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: roster-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
+      # Both optional. The app runs fully without either: the rule parser
+      # falls back to its deterministic path and the written summary hides
+      # itself. Requests try these in order and stop at the first success.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: AI_PROVIDER_ORDER
+        value: gemini,groq
+
+databases:
+  - name: roster-db
+    plan: free
+    region: virginia

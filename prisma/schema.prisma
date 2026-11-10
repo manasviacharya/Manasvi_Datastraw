@@ -1,0 +1,372 @@
+// ---------------------------------------------------------------------------
+// Smart Roster Management System — data model
+//
+// The central design decision is in BrandProcess, below.
+//
+// DEMAND and SUPPLY are kept in separate tables:
+//
+//   BrandProcess  = what is needed. One row per line of work a client bought.
+//                   Owns the operating calendar and the minimum headcount.
+//   Assignment    = who can do it. Many-to-many, so one person can cover
+//                   several brands and one line of work can have several people.
+//
+// The operating calendar deliberately does NOT live on Brand. A single client
+// can run support 7 days a week while running cart recovery on weekdays only,
+// so the calendar belongs to the line of work, not to the client.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Organisation
+// ---------------------------------------------------------------------------
+
+/// A team. Also used as the first search radius when looking for a backup.
+model Pod {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  /// The pod lead is an Employee, so this is a self-referencing link
+  /// through Employee.ledPodId rather than a column here.
+  employees Employee[] @relation("PodMembers")
+  lead      Employee?  @relation("PodLead")
+  brands    Brand[]
+  createdAt DateTime   @default(now())
+}
+
+model Employee {
+  id    String  @id @default(cuid())
+  name  String
+  email String? @unique
+  code  String  @unique
+
+  podId String
+  pod   Pod    @relation("PodMembers", fields: [podId], references: [id], onDelete: Cascade)
+
+  /// Set only on the one employee who leads a pod.
+  ledPodId String? @unique
+  ledPod   Pod?    @relation("PodLead", fields: [ledPodId], references: [id])
+
+  /// A PREFERENCE, not a rule. 0 = Sunday ... 6 = Saturday.
+  /// The engine may override this, but it always records that it did
+  /// and why, in RosterDay.reason.
+  preferredWeeklyOff Int @default(0)
+
+  /// Soft limit. Exceeding it produces a warning, never a hard failure.
+  maxConsecutiveDays Int @default(6)
+
+  /// Pod leads carry a reduced operational load.
+  isPodLead Boolean @default(false)
+
+  active Boolean @default(true)
+
+  assignments Assignment[]
+  leaves      Leave[]
+  rosterDays  RosterDay[]
+  violations  Violation[]
+
+  createdAt DateTime @default(now())
+
+  @@index([podId])
+}
+
+// ---------------------------------------------------------------------------
+// Clients and work
+// ---------------------------------------------------------------------------
+
+/// The client. Holds no calendar on purpose — see the header comment.
+model Brand {
+  id   String @id @default(cuid())
+  name String @unique
+  code String @unique
+
+  /// Which pod owns the relationship. Used for reporting and backup search.
+  ownerPodId String?
+  ownerPod   Pod?    @relation(fields: [ownerPodId], references: [id])
+
+  active Boolean @default(true)
+
+  brandProcesses BrandProcess[]
+
+  createdAt DateTime @default(now())
+}
+
+/// The catalogue of kinds of work: support, cart recovery, NDR, retention.
+/// A manager can add one as data, with no code change.
+model Process {
+  id          String @id @default(cuid())
+  name        String @unique
+  code        String @unique
+  description String?
+
+  brandProcesses BrandProcess[]
+
+  createdAt DateTime @default(now())
+}
+
+/// DEMAND. One row per line of work a client bought.
+///
+/// The calendar is stored as two primitives rather than a fixed enum of the
+/// three patterns the brief names. That way a fourth pattern is just data:
+///
+///   365 days, holidays included -> [T,T,T,T,T,T,T] + observesHolidays false
+///   daily, closed on holidays   -> [T,T,T,T,T,T,T] + observesHolidays true
+///   Sundays + holidays off      -> [F,T,T,T,T,T,T] + observesHolidays true
+///   weekdays, open on holidays  -> [F,T,T,T,T,T,F] + observesHolidays false
+model BrandProcess {
+  id String @id @default(cuid())
+
+  brandId String
+  brand   Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  processId String
+  process   Process @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  /// Seven booleans, index 0 = Sunday ... 6 = Saturday.
+  /// True means the client expects coverage on that weekday.
+  weekdayMask Boolean[]
+
+  /// True  = public holidays are days off for this line of work.
+  /// False = it runs through public holidays.
+  observesHolidays Boolean @default(true)
+
+  /// Minimum people required, per weekday. Exactly 7 entries, index 0 = Sunday.
+  ///
+  /// A per-weekday array rather than a single number, because the brief asks
+  /// for "minimum staffing requirements on specific days" -- a support desk
+  /// might want 3 people on Mondays to clear the weekend backlog and 2 on
+  /// other days. A scalar cannot express that.
+  ///
+  /// Values on days the client is closed are ignored; weekdayMask decides
+  /// open or closed, this decides how many once open.
+  minStaffByWeekday Int[]
+
+  /// Free-text note, e.g. how this rule was originally described.
+  notes String?
+
+  active Boolean @default(true)
+
+  assignments Assignment[]
+  violations  Violation[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([brandId, processId])
+  @@index([brandId])
+}
+
+/// SUPPLY. Which employees are able to cover a given line of work.
+model Assignment {
+  id String @id @default(cuid())
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  brandProcessId String
+  brandProcess   BrandProcess @relation(fields: [brandProcessId], references: [id], onDelete: Cascade)
+
+  /// The main owner of this line of work, where there is one.
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([employeeId, brandProcessId])
+  @@index([brandProcessId])
+}
+
+// ---------------------------------------------------------------------------
+// Calendar inputs
+// ---------------------------------------------------------------------------
+
+/// Editable public holiday list, not a list buried in the code.
+/// `date` is a plain YYYY-MM-DD string. Every date in this app is a string,
+/// on purpose: it removes a whole class of timezone bugs.
+model Holiday {
+  id   String @id @default(cuid())
+  date String @unique
+  name String
+
+  createdAt DateTime @default(now())
+
+  @@index([date])
+}
+
+enum LeaveType {
+  PLANNED
+  COMP_OFF
+  SICK
+}
+
+enum LeaveStatus {
+  REQUESTED
+  APPROVED
+  DECLINED
+}
+
+/// Stored one row per day rather than as a range, which makes
+/// "is this person off on this date?" a single indexed lookup.
+model Leave {
+  id String @id @default(cuid())
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date   String
+  type   LeaveType
+  status LeaveStatus @default(APPROVED)
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+// ---------------------------------------------------------------------------
+// The roster itself
+// ---------------------------------------------------------------------------
+
+enum RosterStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Roster {
+  id String @id @default(cuid())
+
+  /// YYYY-MM, e.g. "2026-12".
+  month  String       @unique
+  status RosterStatus @default(DRAFT)
+
+  /// Scorecard, computed at generation time and stored so the dashboard
+  /// does not have to recompute it on every page load.
+  coveragePct        Float @default(0)
+  preferenceMetPct   Float @default(0)
+  fairnessSpread     Float @default(0)
+  shortfallPersonDays Float @default(0)
+
+  generatedAt DateTime @default(now())
+  publishedAt DateTime?
+
+  days       RosterDay[]
+  violations Violation[]
+
+  @@index([month])
+}
+
+enum DayState {
+  WORKING
+  WEEKLY_OFF
+  HOLIDAY
+  LEAVE
+  COMP_OFF
+}
+
+/// One box in the schedule grid: one employee, one date.
+model RosterDay {
+  id String @id @default(cuid())
+
+  rosterId String
+  roster   Roster @relation(fields: [rosterId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date  String
+  state DayState
+
+  /// WHY this box ended up in this state, written at the moment of the
+  /// decision rather than reconstructed later. This is what makes the
+  /// employee view self-explanatory and lets the AI summarise instead
+  /// of guess.
+  reason String
+
+  /// True when a manager edited this box by hand. Regeneration treats
+  /// locked boxes as fixed input and will not overwrite them.
+  isLocked Boolean @default(false)
+
+  @@unique([rosterId, employeeId, date])
+  @@index([rosterId, date])
+  @@index([employeeId])
+}
+
+enum Severity {
+  /// Blocks publication.
+  HARD
+  /// A warning the manager can accept.
+  SOFT
+}
+
+enum ViolationKind {
+  /// Demand exceeds what the assigned people can physically supply.
+  /// Detected before scheduling starts — arithmetic, not scheduling.
+  STAFFING_SHORTFALL
+  /// One person's own assignments collectively demand more days than they can
+  /// work. Each client looks adequately staffed checked alone; it is the
+  /// COMBINATION that is impossible. This is the brief's "employee assigned to
+  /// overlapping responsibilities".
+  EMPLOYEE_OVERCOMMITTED
+  /// A line of work has fewer people than it needs on a given day.
+  COVERAGE_GAP
+  /// RESERVED, never emitted. A day is one shift in this model, and an employee
+  /// who is present covers every line of work they are assigned to, so there is
+  /// no arrangement in which two duties clash. It becomes reachable only once a
+  /// day is divided into shifts. Kept because Postgres cannot drop an enum
+  /// value cleanly, and documented so it is not mistaken for a missing check.
+  DOUBLE_BOOKED
+  /// Someone did not get their mandatory weekly off.
+  NO_WEEKLY_OFF
+  /// Preferred weekly off was overridden.
+  PREFERENCE_OVERRIDDEN
+  /// Too many days worked in a row.
+  CONSECUTIVE_DAYS
+}
+
+/// Problems are saved rows, not console output. That is what makes them
+/// filterable, linkable from the UI, and feedable to the AI summariser.
+model Violation {
+  id String @id @default(cuid())
+
+  rosterId String
+  roster   Roster @relation(fields: [rosterId], references: [id], onDelete: Cascade)
+
+  /// Null for shortfalls that apply to the whole month rather than one day.
+  date String?
+
+  severity Severity
+  kind     ViolationKind
+
+  brandProcessId String?
+  brandProcess   BrandProcess? @relation(fields: [brandProcessId], references: [id], onDelete: SetNull)
+
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+
+  /// Plain-English statement of the problem.
+  message String
+
+  /// Plain-English suggested resolution, including a named backup where
+  /// the engine could find one.
+  suggestion String?
+
+  /// The person the suggestion names, when there is one and the fix is a
+  /// single action. Stored so the suggestion can be applied with a click
+  /// rather than retyped into the assignments screen.
+  ///
+  /// A plain id rather than a relation: Violation already relates to
+  /// Employee for "who this problem is about", and a second relation to the
+  /// same table would need naming on both sides for no real benefit. The
+  /// apply action re-checks the person still exists before acting.
+  suggestedEmployeeId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([rosterId, severity])
+  @@index([rosterId, kind])
+}
