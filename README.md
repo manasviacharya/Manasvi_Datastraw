@@ -205,7 +205,15 @@ The brief leaves some things unstated. I assumed, and made each configurable:
 
 ---
 
-## Technology
+## Technology & Tech Stack
+
+- **Framework & Core:** **Next.js 15** (App Router, Server Actions, React Server Components) & **React 19**
+- **Language:** **TypeScript 5** (Strict mode, pure deterministic scheduling functions)
+- **Database & ORM:** **PostgreSQL** via **Prisma ORM 6** (declarative migrations, transactions, indexed lookups)
+- **Styling & UI:** **Tailwind CSS**, hand-crafted responsive components (server-rendered grid shipping only ~190 B JS)
+- **AI & LLM Layer:** **Google Gemini 3.5 Flash** with automatic fallback to **Groq (`gpt-oss-120b`)** for edge parsing and briefings
+- **Testing & Tooling:** Node.js native test runner via `tsx` (40 unit tests, 20 AI evaluation benchmarks, zero-DB dry-run)
+- **Cloud & Deployment:** **Render** (Unified Web Service + Managed PostgreSQL configured via `render.yaml`)
 
 | Layer | Choice |
 |---|---|
