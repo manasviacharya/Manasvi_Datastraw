@@ -16,8 +16,8 @@ Built for the Datastraw Tech AI + Tech internship assessment by **Manasvi Achary
   <img src="https://img.shields.io/badge/Render-46E3B7?style=for-the-badge&logo=render&logoColor=white" alt="Render" />
 </p>
 
-- **Live app:** https://manasviacharya-datastrawassignment.onrender.com
-- **Repository:** https://github.com/manasviacharya/ManasviAcharya_DatastrawAssignment
+- **Live app:** https://manasvi-datastraw.onrender.com/
+- **Repository:** https://github.com/manasviacharya/Manasvi_Datastraw
 - **LinkedIn:** https://www.linkedin.com/in/manasvi-acharya/
 
 > **Note on the free Render tier:** the app sleeps after a period of inactivity, so the very first page load after a quiet spell can take up to a minute to wake up. It is not broken — please give it a moment.
